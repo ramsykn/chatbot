@@ -1,71 +1,58 @@
 import streamlit as st
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
-import torch
+import wikipedia
+from transformers import pipeline
 
-# -----------------------------
-# Page Config
-# -----------------------------
+# -------------------------
+# Streamlit UI
+# -------------------------
 
-st.set_page_config(
-    page_title="AI Answering Chatbot",
-    page_icon="🤖",
-    layout="centered"
-)
+st.set_page_config(page_title="Accurate QA Chatbot", page_icon="🤖")
 
-st.title("🤖 Intelligent AI Chatbot")
-st.write("Ask me any question!")
+st.title("🤖 Knowledge-Based QA Chatbot")
+st.write("Ask factual questions. Answers are grounded from Wikipedia.")
 
-# -----------------------------
-# Load Model (Cached)
-# -----------------------------
+# -------------------------
+# Load QA Model
+# -------------------------
 
 @st.cache_resource
-def load_model():
-    model_name = "google/flan-t5-base"
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
-    return tokenizer, model
+def load_qa_model():
+    return pipeline("question-answering", model="distilbert-base-cased-distilled-squad")
 
-tokenizer, model = load_model()
+qa_pipeline = load_qa_model()
 
-# -----------------------------
-# Chat Memory
-# -----------------------------
+# -------------------------
+# Function to Get Answer
+# -------------------------
+
+def get_answer(question):
+    try:
+        # Search Wikipedia
+        search_results = wikipedia.search(question)
+        page = wikipedia.page(search_results[0])
+        context = page.content[:2000]  # limit for speed
+        
+        result = qa_pipeline(question=question, context=context)
+        
+        return result["answer"]
+    
+    except Exception:
+        return "Sorry, I couldn't find reliable information."
+
+# -------------------------
+# Chat Interface
+# -------------------------
 
 if "history" not in st.session_state:
     st.session_state.history = []
 
-# -----------------------------
-# User Input
-# -----------------------------
+user_input = st.text_input("Ask your question:")
 
-user_input = st.text_input("You:", placeholder="Type your question here...")
+if st.button("Submit") and user_input:
+    answer = get_answer(user_input)
+    st.session_state.history.append((user_input, answer))
 
-if st.button("Send") and user_input:
-
-    prompt = f"Answer clearly and accurately:\n{user_input}"
-
-    inputs = tokenizer(prompt, return_tensors="pt", truncation=True)
-
-    outputs = model.generate(
-        **inputs,
-        max_length=256,
-        temperature=0.7,
-        top_p=0.9,
-        do_sample=True
-    )
-
-    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-
-    st.session_state.history.append(("You", user_input))
-    st.session_state.history.append(("Bot", response))
-
-# -----------------------------
 # Display Chat
-# -----------------------------
-
-for role, text in st.session_state.history:
-    if role == "You":
-        st.markdown(f"**🧑 You:** {text}")
-    else:
-        st.markdown(f"**🤖 Bot:** {text}")
+for question, answer in st.session_state.history:
+    st.markdown(f"**🧑 You:** {question}")
+    st.markdown(f"**🤖 Bot:** {answer}")
