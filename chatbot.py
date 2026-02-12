@@ -1,58 +1,81 @@
 import streamlit as st
-import wikipedia
-from transformers import pipeline
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+import torch
 
-# -------------------------
-# Streamlit UI
-# -------------------------
+# -----------------------------
+# Page Setup
+# -----------------------------
 
-st.set_page_config(page_title="Accurate QA Chatbot", page_icon="🤖")
+st.set_page_config(
+    page_title="AI Bank Assistant",
+    page_icon="🏦",
+    layout="centered"
+)
 
-st.title("🤖 Knowledge-Based QA Chatbot")
-st.write("Ask factual questions. Answers are grounded from Wikipedia.")
+st.title("🏦 AI Bank Services Assistant")
+st.write("Ask any question related to banking services.")
 
-# -------------------------
-# Load QA Model
-# -------------------------
+# -----------------------------
+# Load Model
+# -----------------------------
 
 @st.cache_resource
-def load_qa_model():
-    return pipeline("question-answering", model="distilbert-base-cased-distilled-squad")
+def load_model():
+    model_name = "google/flan-t5-base"
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+    return tokenizer, model
 
-qa_pipeline = load_qa_model()
+tokenizer, model = load_model()
 
-# -------------------------
-# Function to Get Answer
-# -------------------------
+# -----------------------------
+# Response Generator
+# -----------------------------
 
-def get_answer(question):
-    try:
-        # Search Wikipedia
-        search_results = wikipedia.search(question)
-        page = wikipedia.page(search_results[0])
-        context = page.content[:2000]  # limit for speed
-        
-        result = qa_pipeline(question=question, context=context)
-        
-        return result["answer"]
-    
-    except Exception:
-        return "Sorry, I couldn't find reliable information."
+def generate_response(user_input):
 
-# -------------------------
-# Chat Interface
-# -------------------------
+    # Restrict to banking domain
+    prompt = f"""
+You are a professional banking assistant.
+Only answer questions related to banking services such as accounts, loans, cards, transactions, balance, statements, online banking, KYC, ATM, and finance.
+If the question is not related to banking, politely say you only answer banking-related questions.
 
-if "history" not in st.session_state:
-    st.session_state.history = []
+Question: {user_input}
 
-user_input = st.text_input("Ask your question:")
+Answer clearly and professionally:
+"""
+
+    inputs = tokenizer(prompt, return_tensors="pt", truncation=True)
+
+    outputs = model.generate(
+        **inputs,
+        max_length=256,
+        temperature=0.5,   # lower = more factual
+        top_p=0.9,
+        do_sample=True
+    )
+
+    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+    return response
+
+# -----------------------------
+# Chat Memory
+# -----------------------------
+
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
+
+user_input = st.text_input("Enter your banking question:")
 
 if st.button("Submit") and user_input:
-    answer = get_answer(user_input)
-    st.session_state.history.append((user_input, answer))
+    answer = generate_response(user_input)
+    st.session_state.chat_history.append(("You", user_input))
+    st.session_state.chat_history.append(("Bot", answer))
 
-# Display Chat
-for question, answer in st.session_state.history:
-    st.markdown(f"**🧑 You:** {question}")
-    st.markdown(f"**🤖 Bot:** {answer}")
+# Display conversation
+for role, text in st.session_state.chat_history:
+    if role == "You":
+        st.markdown(f"**🧑 You:** {text}")
+    else:
+        st.markdown(f"**🏦 Assistant:** {text}")
